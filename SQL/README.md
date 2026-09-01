@@ -1,2 +1,2 @@
 # Oracle SQL
-Advances techniques for SQL
+Advanced techniques for SQL
