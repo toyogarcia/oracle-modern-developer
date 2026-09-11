@@ -70,22 +70,19 @@ Elección:
 En general, la elección entre ambos tipos de cursores depende de la complejidad de la lógica requerida y del nivel de control que necesitas sobre la manipulación de los datos en la base de datos Oracle.
 
 Manejo de Errores con Cursor Implícito:
-
 	BEGIN
 	  FOR empleado_rec IN (SELECT ename, sal FROM emp) LOOP
-	BEGIN
-	  -- Lógica de procesamiento aquí
-	  DBMS_OUTPUT.PUT_LINE('Nombre: ' || empleado_rec.ename || ', Salario: ' || empleado_rec.sal);
-	EXCEPTION
-	WHEN OTHERS THEN
-	  DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+			BEGIN
+				-- Lógica de procesamiento aquí
+				DBMS_OUTPUT.PUT_LINE('Nombre: ' || empleado_rec.ename || ', Salario: ' || empleado_rec.sal);
+			EXCEPTION
+				WHEN OTHERS THEN
+					DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+			END;
+		END LOOP;
 	END;
-	END LOOP;
-	END;
-
 
 Manejo de Errores con Cursor Explícito:
-
 	DECLARE
 	  CURSOR empleados_cursor IS
 		SELECT ename, sal FROM emp;
@@ -93,16 +90,15 @@ Manejo de Errores con Cursor Explícito:
 	BEGIN
 	  OPEN empleados_cursor;
 	  LOOP
-	   BEGIN
-		 FETCH empleados_cursor INTO empleado_rec;
-		 EXIT WHEN empleados_cursor%NOTFOUND;
-
-	-- Lógica de procesamiento aquí
-	  DBMS_OUTPUT.PUT_LINE('Nombre: ' || empleado_rec.ename || ', Salario: ' || empleado_rec.sal);
-	EXCEPTION
-	WHEN OTHERS THEN
-	  DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
-	  END;
+		BEGIN
+			FETCH empleados_cursor INTO empleado_rec;
+			EXIT WHEN empleados_cursor%NOTFOUND;
+			-- Lógica de procesamiento aquí
+			DBMS_OUTPUT.PUT_LINE('Nombre: ' || empleado_rec.ename || ', Salario: ' || empleado_rec.sal);
+		EXCEPTION
+			WHEN OTHERS THEN
+				DBMS_OUTPUT.PUT_LINE('Error: ' || SQLERRM);
+		END;
 	  END LOOP;
 	  CLOSE empleados_cursor;
 	END;
@@ -184,7 +180,6 @@ REF CURSORs, associated with cursor variables enable the retrieval of query resu
 			CLOSE cursor_variable;
 		END;
 		/
-
 
 
 Difference between Cursor and REF Cursor
