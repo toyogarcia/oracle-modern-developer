@@ -18,31 +18,38 @@ Los dos tipos principales de estructuras de datos compuestas en Oracle PL/SQL so
 RECORDS
 ##############
 
-variable compuesta que permite almacenar valores de diferentes tipos de datos organizados en campos
+Un RECORD es una estructura de datos que almacena una sola fila de datos, compuesta por uno o más campos (columnas) y que permite almacenar valores de diferentes tipos de datos.
 
-Características principales
-	Estructura similar a una fila: Agrupa datos relacionados, como los campos de una tabla o de una consulta de cursor.
-	Acceso por puntos: Se accede a los valores individuales usando la notación nombre_registro.nombre_campo.
-	Tipos definidos por el usuario: Se pueden crear tipos personalizados mediante la instrucción TYPE ... IS RECORD (...).
-	Uso de %ROWTYPE: Permite declarar un registro de forma automática con la misma estructura que una tabla o un cursor existente
-
-	DECLARE
-	  TYPE t_empleado IS RECORD (
-		nombre VARCHAR2(50),
-		salario NUMBER
-	  );
-	  v_emp t_empleado;
-	BEGIN
-	  v_emp.nombre := 'Ana';
-	  v_emp.salario := 2500;
-	  DBMS_OUTPUT.PUT_LINE(v_emp.nombre || ' gana ' || v_emp.salario);
-	END;
+Acceso por puntos: Se accede a los valores individuales usando la notación nombre_registro.nombre_campo.
+Tipos definidos por el usuario: Se pueden crear tipos personalizados mediante la instrucción TYPE ... IS RECORD (...).
+Uso de %ROWTYPE: Permite declarar un registro de forma automática con la misma estructura que una tabla o un cursor existente
 
 ¿Para qué se utiliza?
 	Agrupar datos relacionados: Almacenar campos de distinta naturaleza (por ejemplo: un ID numérico, un nombre de tipo texto y una fecha) en una sola variable.
 	Simplificar consultas: Facilitar la lectura y el paso de información completa entre bloques PL/SQL, funciones y procedimientos sin declarar una variable independiente para cada columna.
 	Trabajar con filas de tablas: Mapear registros devueltos por cursores o consultas SELECT ... INTO
 
+En la práctica real, los desarrolladores senior de Oracle usan RECORD por una razón principal: limpieza, modularidad y orden en el código.
+En lugar de tener decenas de variables sueltas flotando por tu procedimiento, las agrupas en un solo "paquete" lógico.
+
+Los 4 escenarios reales donde más vas a usar el tipo RECORD en el día a día son:
+	1. Pasar un grupo de datos a una función o procedimiento
+	2. Guardar el resultado de consultas complejas (Joins y Cálculos)
+	3. Crear APIs de Base de Datos (Packages)
+			En entornos corporativos, las tablas no se acceden directamente. 
+			Se crean paquetes (PACKAGES) lógicos. 
+			En la cabecera del paquete se define un TYPE ... IS RECORD público. 
+			Así, cualquier otro programador que use tu paquete sabe exactamente qué estructura de datos debe enviarte o esperar de vuelta.
+	4. Tablas en Memoria (Colecciones)
+			Para hacer la optimización masiva de datos (BULK COLLECT), Oracle te obliga a definir una colección. 
+			Y como las colecciones de múltiples columnas necesitan una estructura de fila, el RECORD es el bloque de construcción obligatorio para crear esas tablas temporales en memoria.
+			
+¿Cuándo usarlo y cuándo no?
+	Escenario																		¿Usar RECORD personalizado?		¿Qué usar en su lugar?
+	Vas a consultar todas las columnas de una sola tabla.							No								Usa %ROWTYPE (es más rápido y automático).
+	Vas a procesar solo 1 o 2 columnas sueltas.										No								Usa variables escalares simples con %TYPE.
+	Vas a combinar datos de varias tablas o necesitas pasar muchos datos juntos.	Sí								Define un RECORD personalizado.			
+	
 Tipos de Registros
 	1.- Definidos por el usuario (TYPE ... IS RECORD): Tú defines la estructura con los campos y tipos de datos que necesites.
 	
@@ -71,6 +78,7 @@ Tipos de Registros
 
 	
 	2.-	Basados en tablas (%ROWTYPE): Heredan automáticamente la estructura de columnas y tipos de una tabla o vista existente.
+	    Hay que asegurarse de que la select devuelve un solo registro, sino devolverá exception TOO_MANY_ROWS
 	
 		DECLARE
 		  -- Declara un registro con la misma estructura que la tabla 'empleados'
@@ -138,9 +146,138 @@ Pasar un RECORD como parámetro
 		END;
 		/
 	
+Opciones para almacenar varios registros:
+
+	1.- TABLE of RECORDS (Colecciones / Associative Arrays): Defines un tipo RECORD para la estructura de la fila y luego defines un tipo TABLE OF basado en ese registro. 
+		Esto actúa como una tabla en memoria (o array dinámico).
+		
+		DECLARE
+		   TYPE t_lista_empleados IS TABLE OF empleados%ROWTYPE;
+		   lista_reg t_lista_empleados;
+		BEGIN
+		   SELECT *
+			 BULK COLLECT INTO lista_reg
+			 FROM empleados;
+			 
+		   -- Ahora lista_reg contiene todas las filas de la tabla
+		END;
+		/
+		
+		
+		Ejemplo con record definido por el usuario:
+		
+			CREATE OR REPLACE PACKAGE pkg_usuarios AS
+			   -- Paso 1: Definimos el RECORD personalizado con los campos que queramos
+			   TYPE t_reg_usuario IS RECORD (
+				  id_usuario  NUMBER,
+				  email       VARCHAR2(100),
+				  fecha_alta  DATE
+			   );
+
+			   -- Paso 2: Definimos la Nested Table basada en el RECORD anterior
+			   TYPE t_lista_usuarios IS TABLE OF t_reg_usuario;
+
+			   -- Procedure de ejemplo que recibirá la tabla de récords
+			   PROCEDURE procesar_usuarios (p_lista IN t_lista_usuarios);
+			END pkg_usuarios;
+
+			DECLARE
+			   -- Paso 3: Declaramos la variable utilizando el tipo del Package
+			   mis_usuarios pkg_usuarios.t_lista_usuarios;
+			BEGIN
+			   -- Cargamos el SELECT directamente en nuestra tabla de récords personalizados
+			   -- IMPORTANTE: El SELECT debe traer exactamente los 3 campos del RECORD y en su orden
+			   SELECT id, correo_electronico, creado_en
+				 BULK COLLECT INTO mis_usuarios
+				 FROM usuarios_sistema
+				WHERE activo = 'S';
+
+			   -- Comprobamos si se cargaron registros y llamamos al procedure
+			   IF mis_usuarios.COUNT > 0 THEN
+				  pkg_usuarios.procesar_usuarios(p_lista => mis_usuarios);
+			   END IF;
+			END;
+
+			PROCEDURE procesar_usuarios (p_lista IN t_lista_usuarios) IS
+			   BEGIN
+				  -- 1. Verificamos primero que la tabla no esté vacía
+				  IF p_lista.COUNT = 0 THEN
+					 DBMS_OUTPUT.PUT_LINE('La lista de usuarios está vacía.');
+					 RETURN;
+				  END IF;
+
+				  -- 2. Recorremos la tabla de récords desde el índice 1 hasta el final
+				  FOR i IN 1 .. p_lista.COUNT LOOP
+					 
+					 -- 3. Accedemos a cada campo personalizado del RECORD usando el índice 'i'
+					 DBMS_OUTPUT.PUT_LINE(
+						'Registro #' || i || 
+						' | ID: '    || p_lista(i).id_usuario || 
+						' | Email: ' || p_lista(i).email || 
+						' | Alta: '  || TO_CHAR(p_lista(i).fecha_alta, 'DD/MM/YYYY')
+					 );
+					 
+				  END LOOP;
+				  
+		   END procesar_usuarios;
+
+
+	NOTAS:
+		- el objeto (la variable) se llama lista_reg, mientras que su tipo de dato es t_lista_empleados (una colección de tipo Nested Table).
+		- se puede pasar perfectamente como parámetro a un PROCEDURE o FUNCTION pero:
+					Si declaras el TYPE dentro del bloque DECLARE de un programa, solo existirá ahí dentro y ningún otro procedure podrá recibirlo. 
+					Para solucionarlo, debes declararlo en la cabecera de un Package (o como un tipo de objeto global).
+		- Si la tabla de récords va a manejar miles de filas, es muy recomendable pasar el parámetro como IN OUT NOCOPY para evitar que Oracle duplique la colección en memoria al llamar al procedimiento.
+	
+	2.- Varray of RECORDS: Similar a la tabla indexada, pero con un límite máximo de elementos definido desde el principio.
+	
+		Para crear un VARRAY de RECORDS, la regla de oro en Oracle es que no se puede definir directamente un VARRAY de un tipo RECORD de PL/SQL.
+		debes definir la estructura del récord como un OBJECT a nivel de base de datos (esquema) en lugar de un RECORD de PL/SQL. 
+			Un objeto actúa exactamente igual que un récord, pero al ser un tipo de dato global de la base de datos, Oracle sí te permite meterlo dentro de un VARRAY.
+			
+		-- 1. Creamos el equivalente al RECORD (un tipo OBJETO)
+		CREATE OR REPLACE TYPE t_obj_producto AS OBJECT (
+		   id_producto  NUMBER,
+		   nombre       VARCHAR2(50),
+		   precio       NUMBER
+		);
+
+		-- 2. Creamos el VARRAY basado en ese OBJETO (Máximo 5 elementos)
+		CREATE OR REPLACE TYPE t_varray_productos AS VARRAY(5) OF t_obj_producto;
+		
+		DECLARE
+		   -- Declaramos la variable usando el VARRAY global de la base de datos
+		   mis_productos t_varray_productos;
+		BEGIN
+		   -- Carga de datos con BULK COLLECT INTO
+		   -- NOTA: Como es un VARRAY de objetos, el SELECT debe "construir" el objeto
+		   SELECT t_obj_producto(id, nombre_art, precio_venta)
+			 BULK COLLECT INTO mis_productos
+			 FROM productos
+			WHERE categoria = 'Electrónica'
+			  AND ROWNUM <= 5; -- Ponemos filtro para no superar el límite del VARRAY (5)
+
+		   -- Recorremos el VARRAY exactamente igual que una Nested Table
+		   DBMS_OUTPUT.PUT_LINE('Total productos cargados: ' || mis_productos.COUNT);
+		   
+		   FOR i IN 1 .. mis_productos.COUNT LOOP
+			  DBMS_OUTPUT.PUT_LINE('Prod #' || i || 
+								   ' | ID: ' || mis_productos(i).id_producto || 
+								   ' | Nombre: ' || mis_productos(i).nombre || 
+								   ' | Precio: ' || mis_productos(i).precio);
+		   END LOOP;
+
+		EXCEPTION
+		   -- Excepción especial de los VARRAY
+		   WHEN SUBSCRIPT_BEYOND_COUNT THEN
+			  DBMS_OUTPUT.PUT_LINE('Error: Intentaste acceder o insertar más de los 5 elementos permitidos.');
+		END;
+		/
+
+	
+	3.- Cursores: Si los registros provienen de una base de datos, puedes usar un cursor junto con un bucle FOR para procesar múltiples filas una por una.
 		
 	
-
 ##############
 COLLECTIONS
 ##############
@@ -148,6 +285,7 @@ COLLECTIONS
 
 Index-by tables (o arrays asociativos)
 
+	Se pueden pasar como parámetro a otras funciones o procedures.
 	Las index-by tables (también llamadas arrays asociativos) se usan en Oracle PL/SQL para almacenar colecciones de datos en memoria de forma temporal y acceder a ellos rápidamente mediante una clave o índice.
 	Almacenamiento temporal: Guardar filas o columnas de una tabla física para procesarlas en memoria sin consultar la base de datos repetidamente.
 	Caché de datos frecuentes: Mantener listas de valores (como códigos de monedas, estados o parámetros) consultados al inicio de un proceso.
@@ -156,6 +294,9 @@ Index-by tables (o arrays asociativos)
 	Índices flexibles: Pueden usar claves numéricas (BINARY_INTEGER / PLS_INTEGER) o cadenas de texto (VARCHAR2)
 	Crecimiento dinámico: No tienen un tamaño fijo; se expanden de forma automática conforme agregas elementos.
 	Ámbito local: Solo existen en la memoria durante la ejecución del bloque PL/SQL o la sesión actual y no se pueden almacenar directamente en una tabla física de la base de datos sin un tratamiento previo
+	
+	INDEX BY PLS_INTEGER si tu forma de acceder al récord va a ser a través de un ID numérico o si vas a procesar los datos de forma secuencial en un bucle numérico.
+	INDEX BY VARCHAR2(X) si quieres buscar tus récords utilizando palabras, códigos alfanuméricos, estados o textos descriptivos cortos como clave.
 	
 	
 	Para llenar una index-by table automáticamente con datos de una tabla física real, la mejor práctica en Oracle PL/SQL es usar la cláusula BULK COLLECT. 
@@ -416,7 +557,7 @@ Index-by tables (o arrays asociativos)
 
 Nested tables (tablas anidadas)
 
-
+	Se pueden pasar como parámetro a otras funciones o procedures.
 	sirven para almacenar una colección de valores o filas completas (como una subtabla) dentro de una columna de una tabla principal
 	Modelar atributos multivaluados: Permiten guardar varios valores (por ejemplo, múltiples teléfonos o correos electrónicos) en un solo registro sin crear una tabla relacional independiente con claves ajenas
 	Representar jerarquías o datos complejos: Facilitan la manipulación de estructuras desnormalizadas o de objetos anidados de manera lógica en el nivel de aplicación
@@ -553,6 +694,7 @@ Nested tables (tablas anidadas)
 	
 
 Varrays (arrays de tamaño variable)
+	Se pueden pasar como parámetro a otras funciones o procedures.
 	Tienen un límite máximo de elementos definido previamente.
 	VARRAY (variable-size array) en Oracle PL/SQL sirve para almacenar un conjunto ordenado de un número fijo o máximo de elementos del mismo tipo de datos
 	Agrupar datos: Permite guardar varios valores (como números o textos) bajo una misma variable en la memoria
